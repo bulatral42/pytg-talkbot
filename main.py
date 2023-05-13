@@ -1,30 +1,107 @@
 import json
+import logging
 import os
+from collections import defaultdict
+from enum import Enum
 
 import requests
 import telebot
 from telebot import types
 
+
+class BotState(Enum):
+    Base = 1
+    BobaChat = 2
+    MakeRemember = 3
+
+
+class ChatState:
+    def __init__(self):
+        self._state = BotState.Base
+
+    def set_state(self, state: BotState):
+        self._state = state
+
+    def get_state(self) -> BotState:
+        return self._state
+
+
 bot_token = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(bot_token)
+chat_db = defaultdict(ChatState)
+
+menu_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=12)
+menu_markup.add(types.KeyboardButton("Поболтать :)"))
+menu_markup.add(types.KeyboardButton("Погода в Москве"))
+menu_markup.add(types.KeyboardButton("Сделать напоминание TODO"))
+
+
+def request_model(context):
+    request_failed = False
+    try:
+        r = requests.post(
+            url=os.environ.get("MODEL_URL"),
+            json={"Context": [context + " [SEP]"]},
+        )
+    except:
+        request_failed = True
+    if request_failed:
+        return None
+    max_tokens = 0
+    response_text = ""
+    for response in json.loads(r.text)["Responses"]:
+        if response["NumTokens"] > max_tokens:
+            max_tokens = response["NumTokens"]
+            response_text = response["Response"]
+    return response_text
 
 
 @bot.message_handler(commands=["start"])
 def start(message):
-    bot.send_message(message.from_user.id, "👋 Привет! Я твой бот-помошник Балабобик!")  # , reply_markup=markup)
+    chat_db[message.chat.id].set_state(BotState.Base)
+    bot.send_message(
+        message.chat.id,
+        f"👋 Привет, {message.from_user.first_name}! Я твой бот-помошник Балабобик!",
+        reply_markup=menu_markup,
+    )
 
 
-@bot.message_handler(commands=["test"])
-def start_message(message):
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton(text="Три", callback_data=3))
-    markup.add(telebot.types.InlineKeyboardButton(text="Четыре", callback_data=4))
-    markup.add(telebot.types.InlineKeyboardButton(text="Пять", callback_data=5))
-    bot.send_message(message.chat.id, text="Смотри что умею!", reply_markup=markup)
+@bot.message_handler(commands=["chat"])
+@bot.message_handler(func=lambda msg: msg.text == "Поболтать :)" and chat_db[msg.chat.id].get_state() == BotState.Base)
+def start_chat(message):
+    logging.debug("Start chatting")
+    chat_db[message.chat.id].set_state(BotState.BobaChat)
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=12)
+    markup.add(types.KeyboardButton("Stop Чат"))
+    bot.send_message(message.chat.id, text="Что ж, давайте поговорим", reply_markup=markup)
+
+
+@bot.message_handler(func=lambda msg: chat_db[msg.chat.id].get_state() == BotState.BobaChat)
+def message_with_boba(message):
+    if message.text == "Stop Чат":
+        end_chat(message)
+    else:
+        bot.send_message(message.chat.id, text=request_model(message.text))
+
+
+def end_chat(message):
+    logging.debug("End chatting")
+    chat_db[message.chat.id].set_state(BotState.Base)
+
+    bot.send_message(
+        message.chat.id,
+        f"Cпасибо за приятный разговор!)",
+        reply_markup=menu_markup,
+    )
 
 
 @bot.message_handler(commands=["weather"])
-def start_message(message):
+@bot.message_handler(
+    func=lambda msg: msg.text == "Погода в Москве" and chat_db[msg.chat.id].get_state() == BotState.Base
+)
+def get_moscow_weather(message):
+    logging.debug("Calling weather API")
     latitude = 55.75
     longitude = 37.6
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m"
@@ -34,42 +111,10 @@ def start_message(message):
         text = f"Сейчас в Москве {meta['temperature']} °C\nСкорость ветра {(meta['windspeed'] / 3.6):.2f} м/с"
     except:
         text = "Что-то пошло не так"
+    chat_db[message.chat.id].set_state(BotState.Base)
     bot.send_message(message.chat.id, text=text)
 
 
-@bot.message_handler(content_types=["text"])
-def get_text_messages(message):
+logging.basicConfig(level=logging.DEBUG, format=" %(asctime)s - %(levelname)s - %(message)s")
 
-    if message.text == "👋 Поздороваться":
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)  # создание новых кнопок
-        btn1 = types.KeyboardButton("Как стать автором на Хабре?")
-        btn2 = types.KeyboardButton("Правила сайта")
-        btn3 = types.KeyboardButton("Советы по оформлению публикации")
-        markup.add(btn1, btn2, btn3)
-        bot.send_message(message.from_user.id, "❓ Задайте интересующий вас вопрос", reply_markup=markup)  # ответ бота
-
-    elif message.text == "Как стать автором на Хабре?":
-        bot.send_message(
-            message.from_user.id,
-            "Вы пишете первый пост, его проверяют модераторы, и, если всё хорошо, отправляют в основную ленту Хабра, где он набирает просмотры, комментарии и рейтинг. В дальнейшем премодерация уже не понадобится. Если с постом что-то не так, вас попросят его доработать.\n \nПолный текст можно прочитать по "
-            + "[ссылке](https://habr.com/ru/sandbox/start/)",
-            parse_mode="Markdown",
-        )
-
-    elif message.text == "Правила сайта":
-        bot.send_message(
-            message.from_user.id,
-            "Прочитать правила сайта вы можете по " + "[ссылке](https://habr.com/ru/docs/help/rules/)",
-            parse_mode="Markdown",
-        )
-
-    elif message.text == "Советы по оформлению публикации":
-        bot.send_message(
-            message.from_user.id,
-            "Подробно про советы по оформлению публикаций прочитать по "
-            + "[ссылке](https://habr.com/ru/docs/companies/design/)",
-            parse_mode="Markdown",
-        )
-
-
-bot.polling(none_stop=False, interval=0)  # обязательная для работы бота часть
+bot.infinity_polling(restart_on_change=True)
