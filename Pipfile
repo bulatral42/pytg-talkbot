@@ -4,8 +4,9 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-requests = "*"
-pytelegrambotapi = "*"
+pytelegrambotapi = "4.10.0"
+watchdog = "2.1.9"
+psutil = "5.9.4"
 
 [dev-packages]
 pydocstyle = "*"
