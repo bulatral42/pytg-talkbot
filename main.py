@@ -1,3 +1,5 @@
+"""Telegram bot 'Balabobny pomogator' for simple daily tasks."""
+
 import json
 import logging
 import os
@@ -58,6 +60,7 @@ def request_model(context):
 
 @bot.message_handler(commands=["start"])
 def start(message):
+    """Welcome user of Bot."""
     chat_db[message.chat.id].set_state(BotState.Base)
     bot.send_message(
         message.chat.id,
@@ -101,6 +104,10 @@ def end_chat(message):
     func=lambda msg: msg.text == "Погода в Москве" and chat_db[msg.chat.id].get_state() == BotState.Base
 )
 def get_moscow_weather(message):
+    """Show weather forecast.
+
+    Current weather in Moscow from open-meteo.com site.
+    """
     logging.debug("Calling weather API")
     latitude = 55.75
     longitude = 37.6
