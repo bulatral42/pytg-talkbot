@@ -104,18 +104,24 @@ def start_chat(message):
 )
 def callback_set_style(call):
     message = call.message
+    if chat_db[message.chat.id].get_state() != BotState.BobaChat:
+        return
     style = int(call.data.replace("boba_", ""))
     style_name = bb_text_types[style]
     bot.send_message(message.chat.id, text=f"Выбран стиль '{style_name}'. Жду текст")
     chat_db[message.chat.id].set_state(BotState.BobaChatWaitInput, style)
 
 
-@bot.message_handler(func=lambda msg: chat_db[msg.chat.id].get_state() == BotState.BobaChat)
+@bot.message_handler(
+    func=lambda msg: chat_db[msg.chat.id].get_state() in [BotState.BobaChat, BotState.BobaChatWaitInput]
+)
 def message_with_boba(message):
     if message.text == "Stop Чат":
         end_chat(message)
-    else:
+    elif chat_db[message.chat.id].get_state() == BotState.BobaChat:
         bot.send_message(message.chat.id, text="Для начала выберите стиль")
+    else:
+        message_with_boba(message)
 
 
 @bot.message_handler(func=lambda msg: chat_db[msg.chat.id].get_state() == BotState.BobaChatWaitInput)
